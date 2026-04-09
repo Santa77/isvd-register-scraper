@@ -80,6 +80,20 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function isGenericNavLabel(text) {
+  return /^(navštíviť web|visit|zobraziť|detail|otvoriť|show|view)$/i.test(text.trim());
+}
+
+function isLinkTextSameAsHref(linkText, href) {
+  try {
+    const norm = new URL(href).href.replace(/\/$/, "");
+    const t = linkText.replace(/\/$/, "");
+    return t === norm || t === href.replace(/\/$/, "");
+  } catch {
+    return false;
+  }
+}
+
 function parseArgs(argv) {
   const args = {
     help: false,
@@ -495,39 +509,85 @@ async function extractRowsFromCurrentPage(page, args) {
       continue;
     }
 
-    const cellTexts = await tr.locator("td").evaluateAll((tds) =>
-      tds.map((td) => (td.innerText || td.textContent || "").replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim())
-    ).catch(() => []);
+    const cellData = await tr.locator("td").evaluateAll((tds) => {
+      // Získaj Vue router raz pre všetky bunky (SPA linky nemajú params v href)
+      let router = null;
+      try {
+        router = document.querySelector("[data-v-app]")?.__vue_app__?.config?.globalProperties?.$router;
+      } catch (_) {}
+
+      const resolveVueLink = (a) => {
+        try {
+          const to = a.__vueParentComponent?.props?.to;
+          if (!to || !router) return null;
+          const resolved = router.resolve(to);
+          if (!resolved?.href) return null;
+          return new URL(resolved.href, window.location.origin).href;
+        } catch (_) { return null; }
+      };
+
+      return tds.map((td) => ({
+        // Fix: odstrániť "Zobraziť viac/menej" z textu bunky (zostatok po expandovaní)
+        text: (td.innerText || td.textContent || "")
+          .replace(/\u00A0/g, " ")
+          .replace(/\s*Zobraziť (viac|menej)\s*/gi, " ")
+          .replace(/\s+/g, " ")
+          .trim(),
+        links: Array.from(td.querySelectorAll("a"))
+          .map((a) => ({
+            text: (a.textContent || "").replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim(),
+            // Fix: pre SPA linky (href = generická /Registers) použiť router.resolve
+            href: resolveVueLink(a) || a.href || "",
+          }))
+          .filter((l) => l.href),
+      }));
+    }).catch(() => []);
 
     const row = {};
     const finalHeaders =
-      uniqueHeaders || cellTexts.map((_, idx) => `column_${idx + 1}`);
+      cellData.length ? (uniqueHeaders || cellData.map((_, idx) => `column_${idx + 1}`)) : [];
 
-    for (let c = 0; c < cellTexts.length; c++) {
-      row[finalHeaders[c] || `column_${c + 1}`] = cleanText(cellTexts[c]);
-    }
+    for (let c = 0; c < cellData.length; c++) {
+      const { text, links } = cellData[c];
+      const header = finalHeaders[c] || `column_${c + 1}`;
 
-    const links = await tr.locator("a").evaluateAll((anchors) =>
-      anchors.map((a) => ({
-        text: (a.textContent || "").replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim(),
-        href: a.href || "",
-      }))
-    ).catch(() => []);
-
-    for (const link of links) {
-      if (!link.href) {
+      if (links.length === 0) {
+        row[header] = cleanText(text);
         continue;
       }
 
-      const colName = `${cleanText(link.text) || "link"} URL`;
-      row[colName] = link.href;
-      linkHeaders.add(colName);
+      if (links.length === 1) {
+        const { text: lt, href } = links[0];
+        if (isGenericNavLabel(lt)) {
+          // generický popis (Navštíviť web) → použiť href priamo ako hodnotu bunky
+          row[header] = href;
+        } else if (isLinkTextSameAsHref(lt, href)) {
+          // text linku je samotná URL → bunka už má správnu hodnotu, extra stĺpec nepotrebný
+          row[header] = cleanText(text);
+        } else {
+          // zmysluplný link text → bunka = text, URL stĺpec pomenovaný podľa hlavičky
+          row[header] = cleanText(text);
+          const urlCol = `${header} URL`;
+          row[urlCol] = href;
+          linkHeaders.add(urlCol);
+        }
+        continue;
+      }
+
+      // Viac linkov → bunka = text, stĺpce "[hlavička] - [text linku] URL"
+      row[header] = cleanText(text);
+      for (const { text: lt, href } of links) {
+        const urlCol = lt ? `${header} - ${lt} URL` : `${header} URL`;
+        row[urlCol] = href;
+        linkHeaders.add(urlCol);
+      }
     }
 
-    const hasContent = Object.values(row).some((v) => cleanText(v) !== "");
-    if (hasContent) {
-      rows.push(row);
-    }
+    const cellValues = Object.values(row).map((v) => cleanText(v)).filter((v) => v !== "");
+    if (!cellValues.length) continue;
+    // Preskočiť placeholder riadky prázdnych registrov ("Žiadne vzdelávacie centrá", ...)
+    if (cellValues.length === 1 && /^žiadne /i.test(cellValues[0])) continue;
+    rows.push(row);
   }
 
   const allHeaders = [

@@ -23,6 +23,41 @@ node isvd-registers.js --registry certified-institutions,accredited-programs
 
 # Vlastný výstupný priečinok (default: ./output)
 node isvd-registers.js --all --output-dir ./data
+
+# Testovací beh — len 1 strana z viacerých registrov
+node isvd-registers.js --registry certified-institutions,accredited-programs --max-pages 1 --debug
+```
+
+Príklad výpisu pri testovacom behu:
+
+```
+=== Register certifikovaných vzdelávacích inštitúcií ===
+URL: https://isvd.iedu.sk/ViewCertifiedEducationalInstitutionsRegistry
+[debug] Processing page 1 of registry certified-institutions
+[debug] Total 'Zobraziť viac' clicks: 0
+[debug] Best table score: 11212
+Page 1: extracted 10 rows, added 10 new.
+[debug] Trying next page via selector: button:has-text('→')
+Reached safety limit of 1 pages for certified-institutions.
+Saved: ./output/register-certifikovanych-vzdelavacich-institucii.csv
+Rows:  10
+
+=== Register akreditovaných vzdelávacích programov ===
+URL: https://isvd.iedu.sk/ViewAccreditedEducationalProgramsRegistry
+[debug] Processing page 1 of registry accredited-programs
+[debug] expandAllShowMore round=1, candidates=31
+[debug] expandAllShowMore round=2, candidates=17
+[debug] expandAllShowMore round=3, candidates=9
+[debug] expandAllShowMore round=4, candidates=5
+[debug] Total 'Zobraziť viac' clicks: 34
+[debug] Best table score: 11010
+Page 1: extracted 10 rows, added 10 new.
+[debug] Trying next page via selector: button:has-text('→')
+Reached safety limit of 1 pages for accredited-programs.
+Saved: ./output/register-akreditovanych-vzdelavacich-programov.csv
+Rows:  10
+
+Done.
 ```
 
 ### Ďalšie prepínače
@@ -54,3 +89,9 @@ Register je možné zadať aj ako časť názvu (bez diakritiky), URL alebo cest
 ## Výstup
 
 CSV súbory sa uložia do `./output/` (alebo do priečinka zadaného cez `--output-dir`). Každý register má vlastný súbor podľa slovenského názvu, napr. `register-certifikovanych-vzdelavacich-institucii.csv`. URL adresy z buniek tabuľky sa exportujú ako samostatné stĺpce s príponou ` URL`.
+
+## Známe obmedzenia
+
+**SPA navigačné linky (`Odkaz na vzdel. programy` v registri certifikovaných inštitúcií)**
+
+Stĺpce `Odkaz na vzdel. programy - Akreditované URL` a `Odkaz na vzdel. programy - Neakreditované URL` obsahujú hodnotu `https://isvd.iedu.sk/Registers` namiesto konkrétnych URL filtrovaných pre danú inštitúciu. Tieto linky na stránke ISVD nepoužívajú štandardný `href` atribút — navigácia prebieha cez JavaScript `@click` handler bez zmeny `href`. Extrahovanie skutočného cieľa by vyžadovalo simuláciu kliknutia a zachytenie výslednej URL, čo je pre každý riadok príliš pomalé.
