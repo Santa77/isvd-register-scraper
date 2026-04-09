@@ -1,0 +1,23 @@
+node_modules/
+output/*
+!output/.gitkeep
+*.csv
+
+# package-lock je generovaný, nie je potrebné verzovať
+package-lock.json
+
+# Playwright
+/test-results/
+/playwright-report/
+/.playwright/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.old.js
+CLAUDE.md
